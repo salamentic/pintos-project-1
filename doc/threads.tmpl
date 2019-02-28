@@ -8,9 +8,8 @@
 
 >> Fill in the names and email addresses of your group members.
 
-FirstName LastName <email@domain.example>
-FirstName LastName <email@domain.example>
-FirstName LastName <email@domain.example>
+Aaron Wilson ajw43@buffalo.edu
+Aniruddh Rao anrao3@buffalo.edu
 
 ---- PRELIMINARIES ----
 
@@ -35,21 +34,48 @@ FirstName LastName <email@domain.example>
 >> A2: Briefly describe what happens in a call to timer_sleep(),
 >> including the effects of the timer interrupt handler.
 
+when timer_sleep() is called we put the thread into a "sleeping list" using a struct which holds the thread, and number of ticks remaining to sleep. 
+Then, the function calls sema_down() on the semaphore owned by the thread, (which is initialized to 0.) through an external function in threads.c called block_add().
+
 >> A3: What steps are taken to minimize the amount of time spent in
 >> the timer interrupt handler?
 
+We make two major changes and minimize the time in each in the following ways:
+
+- Timer_sleep()
+	We spend as little time as possible by putting it into the list only once, and calling sema_down only once.
+	This avoids busy waiting and therefore wastes little time.
+- Timer_interrupt()
+	We go through the list once regardless of the implementation of priority scheduling, 
+	decrementing every ticks variable only once per iteration.
+	This happens to take very little time in the intterupt, and causes no busy waiting, because we use sema_up only when the number of ticks remaining is <= 0.
+	
 ---- SYNCHRONIZATION ----
 
 >> A4: How are race conditions avoided when multiple threads call
 >> timer_sleep() simultaneously?
 
+Race conditions are avoided because all the threads are inserted to the shared waiting list.
+We also have each thread own its own semaphore, which does not cause any kind of race condition when multiple sleep or wake.
+Another way we handle this race condition is by manipulating the fact that semaphores have interrupts disabled, so this prevents those race conditions.
+
 >> A5: How are race conditions avoided when a timer interrupt occurs
 >> during a call to timer_sleep()?
+
+This is avoided because we use <= 0 while checking for the number of ticks, so even if we slightly overshoot we are still good.
+Furthermore, we use the fact that semaphores have interrupts disable  to prevent those race conditions.
 
 ---- RATIONALE ----
 
 >> A6: Why did you choose this design?  In what ways is it superior to
 >> another design you considered?
+
+Another choice we had was to use a tight loop as it was before we implemented this. This choice would be unoptimal as it causes busy waiting.
+By making our own design, we can avoid busy waiting. Another way we considered was not using semaphores, calling thread_block, this has worse synchronization.
+The third choice we considered was using the < # of ticks + current tick time > to wake up the threads, but this does not allow for priority sorting, making priority scheduling harder.
+This also allows us to avoid the use of another data strucutre, at the cost of one extra operation.
+
+We settled on this choice this specifically as it allows for a safe, lightweight, and portable design. It is portable as it can implement both priority shceduling and MLFQS.
 
 			 PRIORITY SCHEDULING
 			 ===================
