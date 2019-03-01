@@ -95,11 +95,24 @@ We settled on this choice this specifically as it allows for a safe, lightweight
 >> B3: How do you ensure that the highest priority thread waiting for
 >> a lock, semaphore, or condition variable wakes up first?
 
+We store these in sorted order in the semaphore's list of blocked threads.
+
 >> B4: Describe the sequence of events when a call to lock_acquire()
 >> causes a priority donation.  How is nested donation handled?
 
+When a higher priority thread attempts to aquire a lock owned by a lower priority thread, the following happens.
+- The higher priority thread is added to the lock's waiting list ( in a sorted order ).
+- Then, we check if the highest priority element in the list is greater than the priority of the owner of the thread.
+	If it is: the priority of the thread is changed to the higher priority. The lower priority is saved so that it can be reverted.
+Nested donation is handled via a global list of structs of form <thread, lock> , where the thread refers to the thread donating to the lock owner, and the lock is the lock being donated to.
+When a priority donation occurs, we check of the reciever of the highest priority is in the list, and we give it to all children of the second lowest priority.
+This logic holds for at least 8 levels.
+
 >> B5: Describe the sequence of events when lock_release() is called
 >> on a lock that a higher-priority thread is waiting for.
+
+Firstly, the lower priority thread's priority is restored to its initial priority.
+After that, the highest priority thread in the waiting list aquires the lock.
 
 ---- SYNCHRONIZATION ----
 
@@ -107,10 +120,21 @@ We settled on this choice this specifically as it allows for a safe, lightweight
 >> how your implementation avoids it.  Can you use a lock to avoid
 >> this race?
 
+
+
 ---- RATIONALE ----
 
 >> B7: Why did you choose this design?  In what ways is it superior to
 >> another design you considered?
+
+To us, this is the only design we chose that was sensible. The other potential design choice was making another list specifically for priority, while basing the other threads based on time they need to sleep for.
+This allows us to change the alarm clock code to accomodate priority shceduling, and makes it easy to implement semaphore priority scheduling, as we use only one. This doesn't interfere with this.
+
+We chose an insertion sort for all our lists, as it allows us to take the highest priority thread faster, and is likely going to be called more than inserting the thread. 
+This allows for more reliable pre-emption. since set_priority is called only on the running thread, priority will not change during a sort, and the order will not be disrupted.
+This design allows us to implement priority donation scheduling by removing threads donated to and re-inserting it*
+This may be the only disadvantadge, to our knowledge.
+
 
 			  ADVANCED SCHEDULER
 			  ==================
@@ -131,20 +155,25 @@ We settled on this choice this specifically as it allows for a safe, lightweight
 timer  recent_cpu    priority   thread
 ticks   A   B   C   A   B   C   to run
 -----  --  --  --  --  --  --   ------
- 0
- 4
- 8
-12
-16
-20
-24
-28
-32
-36
+ 0      0   0   0  61  59  57       A
+ 4  0.27 1.00 2.00 62  60  58       A 
+ 8  0.54 1.16 2.33 62  60  58       A
+12  0.80 1.26 2.53 62  60  58       A
+16  1.06 1.35 2.71 62  60  58       A
+20  1.32 1.44 2.88 62  60  58       A
+24  1.85 1.52 3.05 62  60  58       A
+28  1.83 1.61 3.22 62  60  58       A
+32  2.07 1.69 3.38 62  60  58       A
+36  2.32 1.77 3.54 62  60  58       A
 
 >> C3: Did any ambiguities in the scheduler specification make values
 >> in the table uncertain?  If so, what rule did you use to resolve
 >> them?  Does this match the behavior of your scheduler?
+
+There were no ambiguities in this limited timescale, however given more runtime there would have been ties in priority.
+We would resolve these ties in our shceduler by allowing the least nice threads with tied priority to get to run first.
+While calculating, we had to decide which calculations to perform first. We decided to calculate load_avg first. 
+This matches our shceduler.
 
 >> C4: How is the way you divided the cost of scheduling between code
 >> inside and outside interrupt context likely to affect performance?
