@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -13,6 +14,12 @@ enum thread_status
     THREAD_BLOCKED,     /* Waiting for an event to trigger. */
     THREAD_DYING        /* About to be destroyed. */
   };
+struct thread_blocktime
+{
+  struct list_elem blocked_elem;
+  struct thread  * sleeping_thread;
+  int tickers;
+};
 
 /* Thread identifier type.
    You can redefine this to whatever type you like. */
@@ -89,6 +96,9 @@ struct thread
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
+    struct list_elem block_elem;           /* List element for all threads list. */
+    uint8_t ticks;
+    struct semaphore sema_clock;
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
@@ -111,6 +121,7 @@ void thread_init (void);
 void thread_start (void);
 
 void thread_tick (void);
+void block_add(void);
 void thread_print_stats (void);
 
 typedef void thread_func (void *aux);
@@ -122,6 +133,7 @@ void thread_unblock (struct thread *);
 struct thread *thread_current (void);
 tid_t thread_tid (void);
 const char *thread_name (void);
+bool thread_comp(struct list_elem * a, struct list_elem * b, void * aux UNUSED);
 
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);

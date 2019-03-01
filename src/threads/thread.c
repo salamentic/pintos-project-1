@@ -2,6 +2,7 @@
 #include <debug.h>
 #include <stddef.h>
 #include <random.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
 #include "threads/flags.h"
@@ -27,6 +28,9 @@ static struct list ready_list;
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
+
+/* List of all processes that are waiting to be woken up */
+static struct list sleeping_list;
 
 /* Idle thread. */
 static struct thread *idle_thread;
@@ -71,6 +75,19 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
+bool thread_comp(struct list_elem * a, struct list_elem * b, void * aux UNUSED)
+{
+  int a_priority = list_entry(a, struct thread, elem)->priority;
+  int b_priority = list_entry(b, struct thread, elem)->priority;
+  return a_priority >=  b_priority;
+}
+
+bool thread_comp2(struct list_elem * a, struct list_elem * b, void * aux UNUSED)
+{
+  int a_priority = list_entry(a, struct thread, elem)->priority;
+  int b_priority = list_entry(b, struct thread, elem)->priority;
+  return a_priority >= b_priority;
+}
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -92,12 +109,21 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
+  list_init (&sleeping_list);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
   init_thread (initial_thread, "main", PRI_DEFAULT);
+  sema_init(&initial_thread->sema_clock,0);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
+}
+
+void 
+block_add(void)
+{
+    struct thread * running = thread_current();
+    sema_down(&running->sema_clock);
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -122,8 +148,7 @@ thread_start (void)
 void
 thread_tick (void) 
 {
-  struct thread *t = thread_current ();
-
+  struct thread * t = thread_current();
   /* Update statistics. */
   if (t == idle_thread)
     idle_ticks++;
@@ -200,7 +225,10 @@ thread_create (const char *name, int priority,
 
   /* Add to run queue. */
   thread_unblock (t);
-
+  if(priority > thread_current()->priority)
+  {
+    thread_yield();
+  }
   return tid;
 }
 
@@ -237,11 +265,29 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  list_insert_ordered (&ready_list, &t->elem, &thread_comp,NULL);
   t->status = THREAD_READY;
+
   intr_set_level (old_level);
 }
 
+void
+thread_unblock_priority (struct thread *t) 
+{
+  enum intr_level old_level;
+
+  ASSERT (is_thread (t));
+
+  old_level = intr_disable ();
+  ASSERT (t->status == THREAD_BLOCKED);
+  list_insert_ordered (&ready_list, &t->elem, &thread_comp,NULL);
+  t->status = THREAD_READY;
+  if(t->priority != 31 && thread_current()->priority < t->priority)
+  {
+    thread_yield();
+  }
+  intr_set_level (old_level);
+}
 /* Returns the name of the running thread. */
 const char *
 thread_name (void) 
@@ -308,7 +354,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+    list_insert_ordered(&ready_list, &cur->elem,&thread_comp,NULL);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -336,6 +382,10 @@ void
 thread_set_priority (int new_priority) 
 {
   thread_current ()->priority = new_priority;
+  if(list_entry (list_front (&ready_list), struct thread, elem)->priority > new_priority)
+  {
+    thread_yield();
+  }
 }
 
 /* Returns the current thread's priority. */
@@ -458,6 +508,7 @@ init_thread (struct thread *t, const char *name, int priority)
   ASSERT (name != NULL);
 
   memset (t, 0, sizeof *t);
+  sema_init(&t->sema_clock,0);
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
@@ -465,7 +516,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();
-  list_push_back (&all_list, &t->allelem);
+  list_insert_ordered (&all_list, &t->allelem, &thread_comp,NULL);
   intr_set_level (old_level);
 }
 

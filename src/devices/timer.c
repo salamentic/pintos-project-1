@@ -1,4 +1,6 @@
 #include "devices/timer.h"
+#include <stdlib.h>
+#include <stdbool.h>
 #include <debug.h>
 #include <inttypes.h>
 #include <round.h>
@@ -6,6 +8,7 @@
 #include "devices/pit.h"
 #include "threads/interrupt.h"
 #include "threads/synch.h"
+#include "threads/thread.h"
 #include "threads/thread.h"
   
 /* See [8254] for hardware details of the 8254 timer chip. */
@@ -29,6 +32,7 @@ static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
+struct list sleeping_list;
 
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
@@ -37,6 +41,7 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+  list_init(&sleeping_list);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -56,7 +61,7 @@ timer_calibrate (void)
       loops_per_tick <<= 1;
       ASSERT (loops_per_tick != 0);
     }
-
+  
   /* Refine the next 8 bits of loops_per_tick. */
   high_bit = loops_per_tick;
   for (test_bit = high_bit >> 1; test_bit != high_bit >> 10; test_bit >>= 1)
@@ -65,6 +70,13 @@ timer_calibrate (void)
 
   printf ("%'"PRIu64" loops/s.\n", (uint64_t) loops_per_tick * TIMER_FREQ);
 }
+
+bool priority_comp(const struct list_elem* a,const struct list_elem* b, void* aux UNUSED)
+{
+  int a_prio  = list_entry(a, struct thread_blocktime,blocked_elem)->sleeping_thread->priority; 
+  int b_prio = list_entry(b, struct thread_blocktime,blocked_elem)->sleeping_thread->priority; 
+  return (a_prio > b_prio);
+} 
 
 /* Returns the number of timer ticks since the OS booted. */
 int64_t
@@ -91,9 +103,16 @@ timer_sleep (int64_t ticks)
 {
   int64_t start = timer_ticks ();
 
+  struct thread_blocktime * t = malloc(sizeof(struct thread_blocktime));
+  t->sleeping_thread = thread_current();
+  t->tickers = ticks;
   ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+  struct thread * current = thread_current();
+  current->ticks += ticks;
+  list_insert_ordered( &sleeping_list,&t->blocked_elem,&priority_comp,  NULL);
+ // list_push_back(&sleeping_list,&t->blocked_elem);
+  block_add();
+  
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -172,6 +191,25 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
+
+  struct thread *t = thread_current ();
+  struct list_elem * index;
+  for(index = list_begin(&sleeping_list);
+      index != list_end(&sleeping_list);
+      index = list_next(index))
+  {
+    struct thread_blocktime * iterator = list_entry(index, struct thread_blocktime, blocked_elem);
+    iterator->tickers--;
+    if(iterator->tickers <= 0 )
+    {
+       if(list_prev(index) != NULL && list_entry(list_prev(index), struct thread_blocktime, blocked_elem)->sleeping_thread->priority <= iterator->sleeping_thread->priority)
+       {
+       list_remove(index);
+       sema_up2(&iterator->sleeping_thread->sema_clock);
+       }
+    }
+  }
+
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
