@@ -15,6 +15,7 @@ Aniruddh Rao anrao3@buffalo.edu
 
 >> If you have any preliminary comments on your submission, notes for the
 >> TAs, or extra credit, please give them here.
+Most of our current implementation has been implemented and tested, as of the time this doc was submitted.
 
 >> Please cite any offline or online sources you consulted while
 >> preparing your submission, other than the Pintos documentation, course
@@ -263,6 +264,7 @@ This might though cause an increase in interrupt time at one point, as mentioned
 >> abstraction layer for fixed-point math, that is, an abstract data
 >> type and/or a set of functions or macros to manipulate fixed-point
 >> numbers, why did you do so?  If not, why not?
+We simply used the fixpoint.h file provided for fixed-point math.
 
 			   SURVEY QUESTIONS
 			   ================
@@ -275,15 +277,19 @@ the quarter.
 
 >> In your opinion, was this assignment, or any one of the three problems
 >> in it, too easy or too hard?  Did it take too long or too little time?
+I feel all the problems were reasonably challenging, although mlfqs was a weird mix of easy but hard interpretations. I think the design doc posed lot more challenging questions.
 
 >> Did you find that working on a particular part of the assignment gave
 >> you greater insight into some aspect of OS design?
+I think working on the priority scheduling/donation part of the project really gave me a good insight to OS design. The fact that I had to understand all the functionality of the existing code, concepts related to threads and scheduling and, also learn how to implement all this while making it future proof for the mlfqs parts, really pushed me towards actually fleshing out my design.
 
 >> Is there some particular fact or hint we should give students in
 >> future quarters to help them solve the problems?  Conversely, did you
 >> find any of our guidance to be misleading?
+Not really since most of the pseudocode was served to most students (elaborated on in other comments).
 
 >> Do you have any suggestions for the TAs to more effectively assist
 >> students, either for future quarters or the remaining projects?
 
 >> Any other comments?
+I feel people should be told to start way earlier and, the recitations should give less pseudo code. It really hurt a bit when a LOT of the pseudocode/understanding of the implementation was gone over in recitation. The fact that starting and putting an effort into the project on time was technically punished, was not very motivating as a student.
