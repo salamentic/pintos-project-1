@@ -71,7 +71,7 @@ timer_calibrate (void)
   printf ("%'"PRIu64" loops/s.\n", (uint64_t) loops_per_tick * TIMER_FREQ);
 }
 
-bool priority_comp(const struct list_elem* a,const struct list_elem* b, void* aux UNUSED)
+bool priority_comp(struct list_elem* a,struct list_elem* b, void* aux )
 {
   int a_prio  = list_entry(a, struct thread_blocktime,blocked_elem)->sleeping_thread->priority; 
   int b_prio = list_entry(b, struct thread_blocktime,blocked_elem)->sleeping_thread->priority; 
