@@ -107,9 +107,9 @@ Another reason why we settled on this choice because it allows for a safe, light
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
-bool priority_comp(const struct list_elem * a, const struct list_elem * b, void * aux UNUSED); : This is a comparator used to store list of thread_blocktime elements in order of priority.
+bool priority_comp(const struct list_elem * a, const struct list_elem * b, void * aux); : This is a comparator used to store list of thread_blocktime elements in order of priority.
 
-bool thread_comp(const struct list_elem * a, const struct list_elem * b, void * aux UNUSED);
+bool thread_comp(const struct list_elem * a, const struct list_elem * b, void * aux);
 : this is used to compare all threads being store in >= fashion, based on their priority.
 
 void sema_up2(struct semaphore * sema); : Alternative semaphore without premption used for priority premption. This is because we cannot yield threads from interrupts usually, which should not happen from the timer in general, like in case of alarm.
