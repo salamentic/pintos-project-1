@@ -75,14 +75,14 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
-bool thread_comp(struct list_elem * a, struct list_elem * b, void * aux UNUSED)
+bool thread_comp(struct list_elem * a, struct list_elem * b, void * aux )
 {
   int a_priority = list_entry(a, struct thread, elem)->priority;
   int b_priority = list_entry(b, struct thread, elem)->priority;
   return a_priority >=  b_priority;
 }
 
-bool thread_comp2(struct list_elem * a, struct list_elem * b, void * aux UNUSED)
+bool thread_comp2(struct list_elem * a, struct list_elem * b, void * aux )
 {
   int a_priority = list_entry(a, struct thread, elem)->priority;
   int b_priority = list_entry(b, struct thread, elem)->priority;

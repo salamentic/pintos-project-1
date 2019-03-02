@@ -133,7 +133,7 @@ void thread_unblock (struct thread *);
 struct thread *thread_current (void);
 tid_t thread_tid (void);
 const char *thread_name (void);
-bool thread_comp(struct list_elem * a, struct list_elem * b, void * aux UNUSED);
+bool thread_comp(struct list_elem * a, struct list_elem * b, void * aux );
 
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);
