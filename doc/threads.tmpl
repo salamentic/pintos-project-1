@@ -42,7 +42,11 @@ static struct list sleeping_list; : List used to store all sleeping threads, so 
 
 struct thread blocktime { struct list_elem blocked_elem; struct thread * sleeping_thread; int tickers;} : This struct allows us to store sleeping threads in sleeping_list with an associated pointer and the ticks to wait.
 
+static void init_thread(struct thread * t, const char * name, int priority) : Added 0 initialization for sema_clock. 
 
+void timer_sleep(int64_t ticks) : Added non busy waiting thread sleeping functionality.
+
+void timer_interrupt(struct intr_frame *args UNUSED) : Added handling for waking up a sleeping thread.
 ---- ALGORITHMS ----
 
 >> A2: Briefly describe what happens in a call to timer_sleep(),
@@ -59,10 +63,11 @@ We make two major changes and minimize the time in each in the following ways:
 - Timer_sleep()
 	We spend as little time as possible by putting it into the list only once, and calling sema_down only once.
 	This avoids busy waiting and therefore wastes little time.
+        Also to add on that, the sema_down too, is called out of the interrupt context!
 - Timer_interrupt()
 	We go through the list once regardless of the implementation of priority scheduling, 
 	decrementing every ticks variable only once per iteration.
-	This happens to take very little time in the intterupt, and causes no busy waiting, because we use sema_up only when the number of ticks remaining is <= 0.
+	This happens to take very little time in the interrupt, and causes no busy waiting, because we use sema_up only when the number of ticks remaining is <= 0.
 	
 ---- SYNCHRONIZATION ----
 
@@ -71,12 +76,12 @@ We make two major changes and minimize the time in each in the following ways:
 
 Race conditions are avoided because all the threads are inserted to the shared waiting list.
 We also have each thread own its own semaphore, which does not cause any kind of race condition when multiple sleep or wake.
-Another way we handle this race condition is by manipulating the fact that semaphores have interrupts disabled, so this prevents those race conditions.
+Another way we handle this race condition is by manipulating the fact that semaphores have interrupts disabled, so this prevents the possibility of most race conditions.
 
 >> A5: How are race conditions avoided when a timer interrupt occurs
 >> during a call to timer_sleep()?
 
-This is avoided because we use <= 0 while checking for the number of ticks, so even if we slightly overshoot we are still good.
+This is avoided because we use <= 0 while checking for the number of ticks, so even if we slightly undershoot we are still good.
 Furthermore, we use the fact that semaphores have interrupts disable  to preventany other race conditions.
 
 ---- RATIONALE ----
@@ -101,15 +106,34 @@ Another reason why we settled on this choice because it allows for a safe, light
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
-bool priority_comp(const struct list_elem * a, const struct list_elem * b, void * aux UNUSED); : This is a comparator used to store list of thread_blocktime elements in order.
+bool priority_comp(const struct list_elem * a, const struct list_elem * b, void * aux UNUSED); : This is a comparator used to store list of thread_blocktime elements in order of priority.
 
-bool thread_comp(struct list_elem * a, struct list_elem * b, void * aux UNUSED);
+bool thread_comp(const struct list_elem * a, const struct list_elem * b, void * aux UNUSED);
 : this is used to compare all threads being store in >= fashion, based on their priority.
 
-void sema_down2(struct semaphore * sema); : Alternative semaphore without premption used for priority premption. This is because we cannot yield threads from interrupts usually, which should not happen from the timer in general, like in case of alarm.
+void sema_up2(struct semaphore * sema); : Alternative semaphore without premption used for priority premption. This is because we cannot yield threads from interrupts usually, which should not happen from the timer in general, like in case of alarm.
 
-void set_thread_priority(int priority); Used to change priority of running thread with premption.
+void thread_set_priority(int priority); Used to change priority of running thread with premption.
 
+struct list donater_list:A list of threads the thread being donated to donates to, used to implement nested donation. 
+
+tid_t thread_create(const char * name, int priority, thread_func * function, void * aux) : Added premption and priority based addition to ready queue.
+
+void thread_unblock(struct thread * t) : Added priority based addition to ready list.
+
+void thread_yield(void) : Added priority based yielding to next thread, and addition of old thread to read queue.
+
+void sema_down(struct semaphore * sema) : Added priority order based addition to waiting list of semaphore.
+
+void sema_up(struct semaphore * sema) : Added appropriate priority based waking up of thread, and premption of woken up thread using yield.
+
+void lock_acquire(struct lock * lock) and void lock_release(struct lock * lock) : Added priority scheduling for lock and donation functionality.
+
+void cond_wait(struct condition * cond, struct lock * lock) : Added priority scheduling functionality to the function.
+
+void cond_signal(struct condition * cond, struct lock * lock) : Added priority scheduling functionality to the function.
+
+void timer_sleep(int64_t ticks) : Added priority based insertion into sleeping_list, for priority scheduling.
 >> B2: Explain the data structure used to track priority donation.
 >> Use ASCII art to diagram a nested donation.  (Alternately, submit a
 >> .png file.)
@@ -130,15 +154,16 @@ When a higher priority thread attempts to aquire a lock owned by a lower priorit
 - Then, we check if the highest priority element in the list is greater than the priority of the owner of the thread.
 	If it is: the priority of the thread that owns the lock is changed to the higher priority. The lower priority is saved so that it can be reverted, once the process is done running.
 
-Nested donation is handled via a global list of structs of form <thread, lock> , where the thread refers to the thread donating to the lock owner, and the lock is the lock being donated to.
-When a priority donation occurs, we check if the reciever of the highest priority is in the list, and we give it to all children of the second lowest priority.
+Nested donation is handled via a list of threads the given thread is waiting. This allows us to check which thread a particular thread is waiting for and could potentially be a donater for now. This causes the donation to one  of these threads if required, as we see, in a nested fashion.
 This logic holds for at least 8 levels.
 
 >> B5: Describe the sequence of events when lock_release() is called
 >> on a lock that a higher-priority thread is waiting for.
 
-Firstly, the lower priority thread's priority is restored to its initial priority.
+Firstly, the lower priority thread's priority is restored to its initial priority, in case it had priority donated to it.
 After that, the highest priority thread in the waiting list aquires the lock.
+If the owner of the lock is the highest priority in the ready_list, it will prempt the running thread and continue running. 
+Further, the old thread is removed from the donater list of all the threads waiting.
 
 ---- SYNCHRONIZATION ----
 
@@ -146,8 +171,10 @@ After that, the highest priority thread in the waiting list aquires the lock.
 >> how your implementation avoids it.  Can you use a lock to avoid
 >> this race?
 A potential race condition in thread_set_priority is when a thread that has lowered its priority, is forced to yield cpu time to a process with a higher priority, causing it to possibly lose it's resources or allowing them to be altered by the other process prempting.
-This is currently not dealth with in our implementation, but can be prevented using locks, by having a thread locking the resource it is using currently. If it already had one and is prempted, thanks to priority donation and the way we implement set_priority, we can have a higher priority thread waiting for the resource/lock donate it's priority to the prempted thread, preventing the race condition!
+This is currently not dealth with in our implementation, but can be prevented using locks, by having a thread locking the resource it is using currently.
+ If it already had one and is prempted, thanks to priority donation and the way we implement set_priority, we can have a higher priority thread waiting for the resource/lock donate it's priority to the prempted thread, preventing the race condition!
 
+Another race condition could be a case where the thread being changed, has it's priority changed at the same time due to priority donation, causing a race. This can be prevented by having this change be synchronized through a lock, quite simply in fact. This is how our implementation avoids it too.
 
 
 ---- RATIONALE ----
@@ -160,9 +187,8 @@ This allows us to change the alarm clock code to accomodate priority shceduling,
 
 We chose an insertion sort for all our lists, as it allows us to take the highest priority thread faster, and this retrieval is likely going to be called more than inserting a thread. It also helps make premption processes faster.
 This implementation also allows for a more reliable process of pre-emption. since set_priority is called only on the running thread, priority will not change during a sort, and the order will not be disrupted.
-This design allows us to implement priority donation scheduling by removing threads donated to and re-inserting it*
-This may be the only disadvantadge, to our knowledge.
 
+Our priority donation mechanism too, in our opinion is an efficient choice. It allows for a quick check, runtime dependent on number of locks our thread is waiting on, which make sure for reliable priority donation when nested, by using certain checks at every level. This barely takes any time and requires the least amound of change to currently functioning scheduling mechanisms, making this an obviously great choice.
 
 			  ADVANCED SCHEDULER
 			  ==================
@@ -172,9 +198,18 @@ This may be the only disadvantadge, to our knowledge.
 >> C1: Copy here the declaration of each new or changed `struct' or
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
+
 static int load_avg; : Used to store the current load_avg.
 int recent_cpu; : Used to store recent_cpu for current thread.
 int nice; : Used to store current nice value for the given thread.
+
+void thread_set_priority(int priority); Made it so that this function returned our current priority when mlfqs is enabled, as calculated by our scheduler.
+
+void thread_get_priority(int priority); Made it so that this function returned our current priority when mlfqs is enabled, as calculated by our scheduler.
+
+tid_t thread_create(const char * name, int priority, thread_func * function, void * aux) : Ignored priority when mlfqs enabled.
+
+
 
 ---- ALGORITHMS ----
 
@@ -208,14 +243,19 @@ This matches our scheduler.
 
 >> C4: How is the way you divided the cost of scheduling between code
 >> inside and outside interrupt context likely to affect performance?
-Most of our scheduling in our current design is being done outside the interrupt context. We simply use the interrupt to check for the current_tick % 4 and increment each thread's recent_cpu, which can be done in the tread_interrupt function. The schedule can be handled by the scheduler as usual, outside of the interrupt context by simply updating priority of the given thread and yielding it's cpu time when required.
-
+Most of our scheduling in our current design is being done inside the interrupt context. But, considering the way we handle our operations and fixpoint arithmetic, the cost does not cause significant effects.
+We simply use the interrupt to check for the current_tick % 4 and increment each thread's recent_cpu, which can be done in the timer_interrupt function. The scheduling can be handled by the scheduler as usual, as done in priority scheduling.
+The main effects, might be an increased amount for load_avg. Although this has not been seen yet, it could cause our handler to take too long, causing the thread to not actually use as much time as it would want to before the next slice, causing an unjust bloat in recent_cpu. This could be the possible effect on the performance if we continute adding load onto the handler.
 ---- RATIONALE ----
 
 >> C5: Briefly critique your design, pointing out advantages and
 >> disadvantages in your design choices.  If you were to have extra
 >> time to work on this part of the project, how might you choose to
 >> refine or improve your design?
+I think most of our design choices were valid and succinct. Although we handle most of our operations within interrupt context, in my opinion the way we do it does not cause too many issues, as it may seem to. It definitely does cause a little more inaccurate load_avg or recent_cpu but not by a lot!
+Our order of operations I think is perfectly fine on the other hand, since we calculate load average first (which is more efficient and accurate than doing it with recent_cpu) and then recent_cpu and priority. This allows for efficient calculation of priority and consequent prempts if any.
+Our choice to use one queue to hold all priorities although causes a slight increase in time, allows for less data usage, and simpler round robin functionality.
+This might though cause an increase in interrupt time at one point, as mentioned above and if we see this cause bugs often at a certain level, this may be changed along the implementation timeline. This I think is also the main disadvantage of this implementation of the MLFQS/
 
 >> C6: The assignment explains arithmetic for fixed-point math in
 >> detail, but it leaves it open to you to implement it.  Why did you
