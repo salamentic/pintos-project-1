@@ -1,4 +1,5 @@
 #include "threads/thread.h"
+#include "threads/fixedpoint.h"
 #include <debug.h>
 #include <stddef.h>
 #include <random.h>
@@ -30,7 +31,7 @@ static struct list ready_list;
 static struct list all_list;
 
 /* List of all processes that are waiting to be woken up */
-static struct list sleeping_list;
+//static struct list sleeping_list;
 
 /* Idle thread. */
 static struct thread *idle_thread;
@@ -54,6 +55,7 @@ static long long idle_ticks;    /* # of timer ticks spent idle. */
 static long long kernel_ticks;  /* # of timer ticks in kernel threads. */
 static long long user_ticks;    /* # of timer ticks in user programs. */
 
+int r;
 /* Scheduling. */
 #define TIME_SLICE 4            /* # of timer ticks to give each thread. */
 static unsigned thread_ticks;   /* # of timer ticks since last yield. */
@@ -74,12 +76,15 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
+int nice;
+static fixed_point_t load_avg;
+fixed_point_t recent_cpu;
 
-bool thread_comp(struct list_elem * a, struct list_elem * b, void * aux )
+bool thread_comp(struct list_elem * a,struct list_elem * b, void * aux )
 {
   int a_priority = list_entry(a, struct thread, elem)->priority;
   int b_priority = list_entry(b, struct thread, elem)->priority;
-  return a_priority >=  b_priority;
+  return a_priority >  b_priority;
 }
 
 bool thread_comp2(struct list_elem * a, struct list_elem * b, void * aux )
@@ -109,7 +114,9 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
-  list_init (&sleeping_list);
+  load_avg = fix_int(0);
+  r=0;
+//  list_init (&sleeping_list);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -143,6 +150,14 @@ thread_start (void)
   sema_down (&idle_started);
 }
 
+int get_ready_list_size(void)
+{
+  return list_size(&ready_list);
+}
+int get_all_list_size(void)
+{
+  return list_size(&all_list);
+}
 /* Called by the timer interrupt handler at each timer tick.
    Thus, this function runs in an external interrupt context. */
 void
@@ -224,6 +239,8 @@ thread_create (const char *name, int priority,
   sf->ebp = 0;
 
   /* Add to run queue. */
+  t->nice = 0;
+  t->recent_cpu = fix_int(0);
   thread_unblock (t);
   if(priority > thread_current()->priority)
   {
@@ -266,6 +283,7 @@ thread_unblock (struct thread *t)
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
   list_insert_ordered (&ready_list, &t->elem, &thread_comp,NULL);
+  r++;
   t->status = THREAD_READY;
 
   intr_set_level (old_level);
@@ -281,6 +299,7 @@ thread_unblock_priority (struct thread *t)
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
   list_insert_ordered (&ready_list, &t->elem, &thread_comp,NULL);
+  r++;
   t->status = THREAD_READY;
   if(t->priority != 31 && thread_current()->priority < t->priority)
   {
@@ -354,7 +373,10 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
+  {
+    r++;
     list_insert_ordered(&ready_list, &cur->elem,&thread_comp,NULL);
+  }
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -381,10 +403,14 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority;
-  if(list_entry (list_front (&ready_list), struct thread, elem)->priority > new_priority)
+  if(thread_mlfqs) new_priority=new_priority;
+  else
   {
-    thread_yield();
+    thread_current ()->priority = new_priority;
+    if(list_size(&ready_list) != 0 && list_entry (list_begin (&ready_list), struct thread, elem)->priority > new_priority)
+    {
+      thread_yield();
+    }
   }
 }
 
@@ -399,23 +425,28 @@ thread_get_priority (void)
 void
 thread_set_nice (int nice UNUSED) 
 {
-  /* Not yet implemented. */
+  thread_current()->nice = nice;
+  thread_current()->priority = fix_trunc(fix_sub(fix_sub(fix_int(63),(fix_unscale(recent_cpu,4))),fix_int(nice*2)));
+
+  if(list_entry (list_front (&ready_list), struct thread, elem)->priority > thread_current()->priority)
+  {
+    thread_yield();
+  }
+  
 }
 
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return thread_current()->nice;
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return fix_round(fix_scale(thread_current()->load_avg,100));
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
@@ -423,9 +454,9 @@ int
 thread_get_recent_cpu (void) 
 {
   /* Not yet implemented. */
-  return 0;
+  return fix_trunc(fix_scale(thread_current()->recent_cpu , 100));
 }
-
+
 /* Idle thread.  Executes when no other thread is ready to run.
 
    The idle thread is initially put on the ready list by
@@ -510,6 +541,7 @@ init_thread (struct thread *t, const char *name, int priority)
   memset (t, 0, sizeof *t);
   sema_init(&t->sema_clock,0);
   t->status = THREAD_BLOCKED;
+  t->nice = 0;
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
@@ -544,7 +576,10 @@ next_thread_to_run (void)
   if (list_empty (&ready_list))
     return idle_thread;
   else
+  {
+    r--;
     return list_entry (list_pop_front (&ready_list), struct thread, elem);
+  }
 }
 
 /* Completes a thread switch by activating the new thread's page

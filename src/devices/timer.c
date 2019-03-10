@@ -9,7 +9,6 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
-#include "threads/thread.h"
   
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -33,7 +32,23 @@ static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
 struct list sleeping_list;
+int ready_threads;
 
+void recent_cpu_calc(struct thread * t, void * aux UNUSED);
+void mlfqs_priority_calc(struct thread * t, void * aux UNUSED);
+
+void
+recent_cpu_calc(struct thread * t, void * aux)
+{
+  fixed_point_t la = t->load_avg;
+  fixed_point_t la_coeff = fix_div(fix_mul(la,fix_int(2)),fix_add(fix_mul(la,fix_int(2)), fix_int(1)));
+  t->recent_cpu = fix_add(fix_mul(la_coeff,t->recent_cpu) , fix_int(t->nice));
+}
+void
+mlfqs_priority_calc(struct thread * t, void * aux)
+{
+  t->priority = 63 - fix_trunc(fix_unscale(t->recent_cpu,4)) - t->nice * 2;
+}
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
 void
@@ -190,6 +205,21 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
+  if(timer_ticks() % TIMER_FREQ == 0 )
+  {
+    ready_threads = 1;
+    ready_threads = get_all_list_size()-list_size(&sleeping_list)-1;
+    thread_current()->load_avg = fix_add(fix_mul(fix_frac(59,60),thread_current()->load_avg),fix_mul(fix_frac(1,60),fix_int(ready_threads)));
+    thread_foreach(&recent_cpu_calc,NULL); 
+  }
+  else
+  thread_current()->recent_cpu = fix_add(thread_current()->recent_cpu,fix_int(1));
+ /* else
+    thread_current()->recent_cpu = fix_add(thread_current()->recent_cpu,fix_int(1));*/
+  if(timer_ticks() % 4 == 0 && thread_mlfqs)
+  {
+    thread_foreach(&mlfqs_priority_calc,NULL);
+  }
   thread_tick ();
 
   struct thread *t = thread_current ();
@@ -209,6 +239,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
        }
     }
   }
+
 
 }
 

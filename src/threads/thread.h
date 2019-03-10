@@ -5,6 +5,8 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/synch.h"
+#include "threads/fixedpoint.h"
+#include "fixedpoint.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -99,6 +101,9 @@ struct thread
     struct list_elem block_elem;           /* List element for all threads list. */
     uint8_t ticks;
     struct semaphore sema_clock;
+    int nice;
+    fixed_point_t load_avg;
+    fixed_point_t recent_cpu;
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
@@ -149,5 +154,6 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+int get_ready_list_size(void);
 
 #endif /* threads/thread.h */
