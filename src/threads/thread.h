@@ -97,11 +97,14 @@ struct thread
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
+    int old_priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
     struct list_elem block_elem;           /* List element for all threads list. */
+    struct list lock_list;
+    struct list donater_list;
     uint8_t ticks;
     struct semaphore sema_clock;
-    int nice;
+    uint8_t nice;
     fixed_point_t load_avg;
     fixed_point_t recent_cpu;
 
@@ -139,6 +142,7 @@ struct thread *thread_current (void);
 tid_t thread_tid (void);
 const char *thread_name (void);
 bool thread_comp(struct list_elem * a, struct list_elem * b, void * aux );
+bool thread_comp_opp(struct list_elem * a, struct list_elem * b, void * aux );
 
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);

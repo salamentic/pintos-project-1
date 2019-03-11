@@ -87,6 +87,13 @@ bool thread_comp(struct list_elem * a,struct list_elem * b, void * aux )
   return a_priority >  b_priority;
 }
 
+bool thread_comp_opp(struct list_elem * a,struct list_elem * b, void * aux )
+{
+  int a_priority = list_entry(a, struct thread, elem)->priority;
+  int b_priority = list_entry(b, struct thread, elem)->priority;
+  return a_priority <  b_priority;
+}
+
 bool thread_comp2(struct list_elem * a, struct list_elem * b, void * aux )
 {
   int a_priority = list_entry(a, struct thread, elem)->priority;
@@ -157,6 +164,10 @@ int get_ready_list_size(void)
 int get_all_list_size(void)
 {
   return list_size(&all_list);
+}
+struct thread * get_idle_thread(void)
+{
+  return idle_thread;
 }
 /* Called by the timer interrupt handler at each timer tick.
    Thus, this function runs in an external interrupt context. */
@@ -406,10 +417,19 @@ thread_set_priority (int new_priority)
   if(thread_mlfqs) new_priority=new_priority;
   else
   {
+    /*for(struct list_elem * e = list_begin(&lock->holder->donater_list); e != list_end(&lock->holder->donater_list); e=list_next(e))
+    {
+       struct lock * temp_lock = list_entry(e, struct lock, donater_lock_elem);
+    */
+    if(!list_empty(&thread_current()->lock_list))
+    list_entry(list_front(&thread_current()->lock_list),struct lock, lock_elem)->owner_original = new_priority;
+    else{
     thread_current ()->priority = new_priority;
+    thread_current ()->old_priority = new_priority;
     if(list_size(&ready_list) != 0 && list_entry (list_begin (&ready_list), struct thread, elem)->priority > new_priority)
     {
       thread_yield();
+    }
     }
   }
 }
@@ -545,7 +565,10 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->old_priority = priority;
   t->magic = THREAD_MAGIC;
+  list_init(&t->lock_list);
+  list_init(&t->donater_list);
 
   old_level = intr_disable ();
   list_insert_ordered (&all_list, &t->allelem, &thread_comp,NULL);
