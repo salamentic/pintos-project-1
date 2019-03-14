@@ -104,8 +104,8 @@ struct thread
     struct list donater_list;
     uint8_t ticks;
     struct semaphore sema_clock;
-    uint8_t nice;
-    fixed_point_t load_avg;
+    fixed_point_t nice;
+    int noice;
     fixed_point_t recent_cpu;
 
     /* Shared between thread.c and synch.c. */
@@ -147,6 +147,8 @@ bool thread_comp_opp(struct list_elem * a, struct list_elem * b, void * aux );
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);
 
+void
+recent_cpu_calc(struct thread * t, void * aux);
 /* Performs some operation on thread t, given auxiliary data AUX. */
 typedef void thread_action_func (struct thread *t, void *aux);
 void thread_foreach (thread_action_func *, void *);

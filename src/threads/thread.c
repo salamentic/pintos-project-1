@@ -1,4 +1,5 @@
 #include "threads/thread.h"
+#include "devices/timer.h"
 #include "threads/fixedpoint.h"
 #include <debug.h>
 #include <stddef.h>
@@ -21,6 +22,29 @@
    Used to detect stack overflow.  See the big comment at the top
    of thread.h for details. */
 #define THREAD_MAGIC 0xcd6abf4b
+
+static fixed_point_t load_avg;
+static fixed_point_t two;
+static fixed_point_t one;
+static fixed_point_t fifty_nine;
+static fixed_point_t one_by_60;
+
+void
+recent_cpu_calc1(struct thread * t, void * aux)
+{
+  
+  fixed_point_t la = load_avg;
+  fixed_point_t la_coeff = fix_div(fix_mul(la,two),fix_add(fix_mul(la,two), one));
+  t->recent_cpu = fix_add(fix_mul(la_coeff,t->recent_cpu) , (thread_current()->nice));
+}
+
+void
+mlfqs_priority_calc(struct thread * t, void * aux)
+{
+  int rcpu_scaled = fix_trunc(fix_unscale(t->recent_cpu,4));
+  t->priority = 63 - rcpu_scaled - t->noice * 2;
+}
+
 
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
@@ -76,9 +100,7 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
-int nice;
-static fixed_point_t load_avg;
-fixed_point_t recent_cpu;
+fixed_point_t nice;
 
 bool thread_comp(struct list_elem * a,struct list_elem * b, void * aux )
 {
@@ -122,6 +144,11 @@ thread_init (void)
   list_init (&ready_list);
   list_init (&all_list);
   load_avg = fix_int(0);
+  one = fix_int(1);
+  two = fix_int(2);
+  fifty_nine = fix_frac(59,60);
+  one_by_60 = fix_frac(1,60);
+
   r=0;
 //  list_init (&sleeping_list);
 
@@ -159,7 +186,12 @@ thread_start (void)
 
 int get_ready_list_size(void)
 {
+  
+  if(!list_empty(&ready_list) && list_entry(list_front(&ready_list), struct thread, elem) == idle_thread)
+  return list_size(&ready_list)-1;
+  if(thread_current() == idle_thread)
   return list_size(&ready_list);
+  return list_size(&ready_list)+1;
 }
 int get_all_list_size(void)
 {
@@ -175,6 +207,19 @@ void
 thread_tick (void) 
 {
   struct thread * t = thread_current();
+  if(timer_ticks() % TIMER_FREQ == 0 && thread_mlfqs)
+  {
+    int ready_threads2 = get_ready_list_size();
+    load_avg = fix_add(fix_mul(fifty_nine,load_avg),fix_mul(one_by_60,fix_int(ready_threads2)));
+    thread_foreach(&recent_cpu_calc1,NULL); 
+  }
+  else 
+  thread_current()->recent_cpu = fix_add(fix_int(1), thread_current()->recent_cpu);
+  if(timer_ticks() % 4 == 0 && thread_mlfqs)
+  {
+    thread_foreach(&mlfqs_priority_calc,NULL);
+  }
+    
   /* Update statistics. */
   if (t == idle_thread)
     idle_ticks++;
@@ -250,10 +295,9 @@ thread_create (const char *name, int priority,
   sf->ebp = 0;
 
   /* Add to run queue. */
-  t->nice = 0;
-  t->recent_cpu = fix_int(0);
+  t->nice = fix_int(0);
   thread_unblock (t);
-  if(priority > thread_current()->priority)
+  if(priority > thread_current()->priority )
   {
     thread_yield();
   }
@@ -445,10 +489,11 @@ thread_get_priority (void)
 void
 thread_set_nice (int nice UNUSED) 
 {
-  thread_current()->nice = nice;
-  thread_current()->priority = fix_trunc(fix_sub(fix_sub(fix_int(63),(fix_unscale(recent_cpu,4))),fix_int(nice*2)));
+  thread_current()->nice =fix_int(nice);
+  thread_current()->priority = fix_trunc(fix_sub(fix_sub(fix_int(63),(fix_unscale(thread_current()->recent_cpu,4))),fix_int(nice*2)));
 
-  if(list_entry (list_front (&ready_list), struct thread, elem)->priority > thread_current()->priority)
+  thread_current()->noice = nice;
+  if(!list_empty(&ready_list) && list_entry (list_front (&ready_list), struct thread, elem)->priority > thread_current()->priority)
   {
     thread_yield();
   }
@@ -459,14 +504,14 @@ thread_set_nice (int nice UNUSED)
 int
 thread_get_nice (void) 
 {
-  return thread_current()->nice;
+  return fix_trunc(thread_current()->nice);
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) 
 {
-  return fix_round(fix_scale(thread_current()->load_avg,100));
+  return fix_round(fix_scale(load_avg,100));
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
@@ -474,7 +519,7 @@ int
 thread_get_recent_cpu (void) 
 {
   /* Not yet implemented. */
-  return fix_trunc(fix_scale(thread_current()->recent_cpu , 100));
+  return fix_trunc((fix_mul(thread_current()->recent_cpu, fix_int(100) )));
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -561,10 +606,11 @@ init_thread (struct thread *t, const char *name, int priority)
   memset (t, 0, sizeof *t);
   sema_init(&t->sema_clock,0);
   t->status = THREAD_BLOCKED;
-  t->nice = 0;
+  t->nice = fix_int(0);
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->recent_cpu = fix_int(0);
   t->old_priority = priority;
   t->magic = THREAD_MAGIC;
   list_init(&t->lock_list);
