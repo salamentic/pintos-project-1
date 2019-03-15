@@ -28,21 +28,23 @@ static fixed_point_t two;
 static fixed_point_t one;
 static fixed_point_t fifty_nine;
 static fixed_point_t one_by_60;
+static fixed_point_t load_coeff;
+static fixed_point_t four;
+
+struct thread * new_run;
 
 void
 recent_cpu_calc1(struct thread * t, void * aux)
 {
   
-  fixed_point_t la = load_avg;
-  fixed_point_t la_coeff = fix_div(fix_mul(la,two),fix_add(fix_mul(la,two), one));
-  t->recent_cpu = fix_add(fix_mul(la_coeff,t->recent_cpu) , (thread_current()->nice));
+  t->recent_cpu = fix_add(fix_mul(load_coeff,t->recent_cpu) , (thread_current()->nice));
 }
 
 void
 mlfqs_priority_calc(struct thread * t, void * aux)
 {
-  int rcpu_scaled = fix_trunc(fix_unscale(t->recent_cpu,4));
-  t->priority = 63 - rcpu_scaled - t->noice * 2;
+  int rcpu_scaled = fix_trunc(fix_div(t->recent_cpu,four));
+  t->priority = 63 - rcpu_scaled - fix_trunc(t->nice) * 2;
 }
 
 
@@ -148,7 +150,7 @@ thread_init (void)
   two = fix_int(2);
   fifty_nine = fix_frac(59,60);
   one_by_60 = fix_frac(1,60);
-
+  four = fix_int(4);
   r=0;
 //  list_init (&sleeping_list);
 
@@ -207,19 +209,20 @@ void
 thread_tick (void) 
 {
   struct thread * t = thread_current();
-  if(timer_ticks() % TIMER_FREQ == 0 && thread_mlfqs)
-  {
-    int ready_threads2 = get_ready_list_size();
-    load_avg = fix_add(fix_mul(fifty_nine,load_avg),fix_mul(one_by_60,fix_int(ready_threads2)));
-    thread_foreach(&recent_cpu_calc1,NULL); 
-  }
-  else 
-  thread_current()->recent_cpu = fix_add(fix_int(1), thread_current()->recent_cpu);
   if(timer_ticks() % 4 == 0 && thread_mlfqs)
   {
     thread_foreach(&mlfqs_priority_calc,NULL);
   }
-    
+  if(timer_ticks() % TIMER_FREQ == 0 && thread_mlfqs)
+  {
+    int ready_threads2 = get_ready_list_size();
+    thread_foreach(&recent_cpu_calc1,NULL); 
+    load_avg = fix_add(fix_mul(fifty_nine,load_avg),fix_mul(one_by_60,fix_int(ready_threads2)));
+    load_coeff = fix_div(fix_mul(load_avg,two),fix_add(fix_mul(load_avg,two), one));
+  }
+  else 
+  t->recent_cpu = fix_add(one, t->recent_cpu);
+  
   /* Update statistics. */
   if (t == idle_thread)
     idle_ticks++;
@@ -356,7 +359,7 @@ thread_unblock_priority (struct thread *t)
   list_insert_ordered (&ready_list, &t->elem, &thread_comp,NULL);
   r++;
   t->status = THREAD_READY;
-  if(t->priority != 31 && thread_current()->priority < t->priority)
+  if(t->priority != idle_thread && thread_current()->priority < t->priority)
   {
     thread_yield();
   }
@@ -737,3 +740,4 @@ allocate_tid (void)
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+

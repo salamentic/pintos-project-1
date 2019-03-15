@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <debug.h>
+#include <stdio.h>
 #include <inttypes.h>
 #include <round.h>
 #include <stdio.h>
@@ -127,7 +128,7 @@ timer_sleep (int64_t ticks)
   ASSERT (intr_get_level () == INTR_ON);
   struct thread * current = thread_current();
   if(current->ticks == 0)
-  current->ticks += timer_ticks() + ticks;
+  current->ticks += timer_ticks() +ticks;
   else
   current->ticks += ticks;
   list_insert_ordered( &sleeping_list,&t->blocked_elem,&priority_comp,  NULL);
@@ -215,8 +216,10 @@ timer_interrupt (struct intr_frame *args UNUSED)
     thread_current()->recent_cpu = fix_add(thread_current()->recent_cpu,fix_int(1));*/
   thread_tick ();
 
+  /*
   struct thread *t = thread_current ();
-  /*for(index = list_begin(&sleeping_list);
+  struct list_elem * index;
+  for(index = list_begin(&sleeping_list);
       index != list_end(&sleeping_list);
       index = list_next(index))
   {
@@ -235,7 +238,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
   if(!list_empty(&sleeping_list))
   {
   struct list_elem * index =list_front(&sleeping_list);
-  struct thread_blocktime * iterator = list_entry(list_front(&sleeping_list), struct thread_blocktime, blocked_elem);
+  struct thread_blocktime * iterator = list_entry(index, struct thread_blocktime, blocked_elem);
   while(iterator != list_end(&sleeping_list) && iterator->tickers <= timer_ticks())
   {
      list_remove(iterator);
