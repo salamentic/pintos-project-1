@@ -115,14 +115,14 @@ sema_up (struct semaphore *sema)
   ASSERT (sema != NULL);
 
   old_level = intr_disable ();
-  struct thread * t; 
+  struct thread * t = NULL; 
 
   int p = -1;
   if (!list_empty (&sema->waiters)) 
-{
-  t = list_entry(list_back(&sema->waiters),struct thread, elem);
-  p = t->priority;
-}
+  {
+    t = list_entry(list_back(&sema->waiters),struct thread, elem);
+    p = t->priority;
+  }
   if (!list_empty (&sema->waiters)) 
   {
     list_sort(&sema->waiters, &thread_comp,NULL);
@@ -130,10 +130,10 @@ sema_up (struct semaphore *sema)
   }
   sema->value++;
 
-    if(p != get_idle_thread() && p > thread_current()->priority)
-    {
-      thread_yield();
-    }
+  if(t != NULL && t != get_idle_thread() && p > thread_current()->priority)
+  {
+    thread_yield();
+  }
   intr_set_level (old_level);
 }
 
@@ -145,14 +145,7 @@ sema_up2 (struct semaphore *sema)
   ASSERT (sema != NULL);
 
   old_level = intr_disable ();
-  struct thread * t; 
 
-  int p = -1;
-  if (!list_empty (&sema->waiters)) 
-{
-  t = list_entry(list_back(&sema->waiters),struct thread, elem);
-  p = t->priority;
-}
   if (!list_empty (&sema->waiters)) 
   {
 
@@ -383,12 +376,12 @@ struct semaphore_elem
     struct semaphore semaphore;         /* This semaphore. */
   };
 
-bool semathread_comp(struct list_elem * a,struct list_elem * b, void * aux )
+bool semathread_comp(const struct list_elem * a UNUSED,const struct list_elem * b, void * aux UNUSED )
 {
   int b_priority = list_entry(list_front(
             &(list_entry (b,struct semaphore_elem, elem)->semaphore.waiters)
             ), struct thread, elem)->priority;
-  return aux >  b_priority;
+  return thread_current()->priority >  b_priority;
 }
 /* Initializes condition variable COND.  A condition variable
    allows one piece of code to signal a condition and cooperating
@@ -432,7 +425,7 @@ cond_wait (struct condition *cond, struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
   
   sema_init (&waiter.semaphore, 0);
-  list_insert_ordered (&cond->waiters, &waiter.elem, &semathread_comp,thread_current()->priority);
+  list_insert_ordered (&cond->waiters, &waiter.elem, &semathread_comp,NULL);
   lock_release (lock);
   sema_down (&waiter.semaphore);
   lock_acquire (lock);

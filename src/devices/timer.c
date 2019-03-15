@@ -95,7 +95,7 @@ bool priority_comp(struct list_elem* a,struct list_elem* b, void* aux )
   return (a_prio > b_prio);
 } */
 
-bool priority_comp(struct list_elem* a,struct list_elem* b, void* aux )
+bool priority_comp(const struct list_elem* a,const struct list_elem* b, void* aux UNUSED )
 {
   
   if(list_entry(a, struct thread_blocktime,blocked_elem)->tickers == list_entry(b, struct thread_blocktime,blocked_elem)->tickers)
@@ -223,13 +223,9 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
- /* else
-    thread_current()->recent_cpu = fix_add(thread_current()->recent_cpu,fix_int(1));*/
   thread_tick ();
 
   
-  struct thread *t = thread_current ();
-  struct list_elem * index;
   /*for(index = list_begin(&sleeping_list);
       index != list_end(&sleeping_list);
       index = list_next(index))

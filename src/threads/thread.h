@@ -142,8 +142,9 @@ void thread_unblock (struct thread *);
 struct thread *thread_current (void);
 tid_t thread_tid (void);
 const char *thread_name (void);
-bool thread_comp(struct list_elem * a, struct list_elem * b, void * aux );
-bool thread_comp_opp(struct list_elem * a, struct list_elem * b, void * aux );
+bool thread_comp(const struct list_elem * a,const struct list_elem * b, void * aux UNUSED );
+bool thread_comp_opp(const struct list_elem * a,const struct list_elem * b, void * aux UNUSED);
+bool thread_comp2(const struct list_elem * a,const struct list_elem * b, void * aux UNUSED);
 
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);
@@ -162,5 +163,10 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 int get_ready_list_size(void);
+int get_all_list_size(void);
+struct thread * get_idle_thread(void);
+void mlfqs_priority_calc(struct thread * t, void * aux);
+void recent_cpu_calc1(struct thread * t, void * aux UNUSED);
+void thread_unblock_priority (struct thread *t) ;
 
 #endif /* threads/thread.h */

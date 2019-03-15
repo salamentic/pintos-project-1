@@ -39,6 +39,6 @@ void timer_udelay (int64_t microseconds);
 void timer_ndelay (int64_t nanoseconds);
 
 void timer_print_stats (void);
-bool priority_comp(struct list_elem* a,struct list_elem* b, void* aux);
+bool priority_comp(const struct list_elem* a,const struct list_elem* b, void* aux);
 
 #endif /* devices/timer.h */

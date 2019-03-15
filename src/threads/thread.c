@@ -30,21 +30,22 @@ static fixed_point_t fifty_nine;
 static fixed_point_t one_by_60;
 static fixed_point_t load_coeff;
 static fixed_point_t four;
+static fixed_point_t sixty_three;
 
 struct thread * new_run;
 
 void
-recent_cpu_calc1(struct thread * t, void * aux)
+recent_cpu_calc1(struct thread * t, void * aux UNUSED)
 {
   
   t->recent_cpu = fix_add(fix_mul(load_coeff,t->recent_cpu) , (thread_current()->nice));
 }
 
 void
-mlfqs_priority_calc(struct thread * t, void * aux)
+mlfqs_priority_calc(struct thread * t, void * aux UNUSED)
 {
-  int rcpu_scaled = fix_trunc(fix_div(t->recent_cpu,four));
-  t->priority = 63 - rcpu_scaled - fix_trunc(t->nice) * 2;
+  fixed_point_t rcpu_scaled = (fix_div(t->recent_cpu,four));
+  t->priority = fix_round(fix_sub(fix_sub(sixty_three , rcpu_scaled),fix_mul(t->nice,two)));
 }
 
 
@@ -104,21 +105,21 @@ void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 fixed_point_t nice;
 
-bool thread_comp(struct list_elem * a,struct list_elem * b, void * aux )
+bool thread_comp(const struct list_elem * a,const struct list_elem * b, void * aux UNUSED )
 {
   int a_priority = list_entry(a, struct thread, elem)->priority;
   int b_priority = list_entry(b, struct thread, elem)->priority;
   return a_priority >  b_priority;
 }
 
-bool thread_comp_opp(struct list_elem * a,struct list_elem * b, void * aux )
+bool thread_comp_opp(const struct list_elem * a,const struct list_elem * b, void * aux UNUSED )
 {
   int a_priority = list_entry(a, struct thread, elem)->priority;
   int b_priority = list_entry(b, struct thread, elem)->priority;
   return a_priority <  b_priority;
 }
 
-bool thread_comp2(struct list_elem * a, struct list_elem * b, void * aux )
+bool thread_comp2(const struct list_elem * a,const struct list_elem * b, void * aux UNUSED )
 {
   int a_priority = list_entry(a, struct thread, elem)->priority;
   int b_priority = list_entry(b, struct thread, elem)->priority;
@@ -151,6 +152,7 @@ thread_init (void)
   fifty_nine = fix_frac(59,60);
   one_by_60 = fix_frac(1,60);
   four = fix_int(4);
+  sixty_three = fix_int(63);
 //  list_init (&sleeping_list);
 
   /* Set up a thread structure for the running thread. */
@@ -220,6 +222,7 @@ thread_tick (void)
   if(timer_ticks() % 4 == 0 && thread_mlfqs)
   {
     thread_foreach(&mlfqs_priority_calc,NULL);
+    list_sort(&ready_list, &thread_comp, NULL);
   }
   
   /* Update statistics. */
@@ -359,7 +362,7 @@ thread_unblock_priority (struct thread *t)
   list_insert_ordered (&ready_list, &t->elem, &thread_comp,NULL);
   r++;
   t->status = THREAD_READY;
-  if(t->priority != idle_thread && thread_current()->priority < t->priority)
+  if(t != idle_thread && thread_current()->priority < t->priority)
   {
     thread_yield();
   }
