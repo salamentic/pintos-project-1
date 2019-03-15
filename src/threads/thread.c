@@ -338,8 +338,8 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  if(thread_mlfqs)
-  list_sort(&ready_list, &thread_comp, NULL);
+  //if(thread_mlfqs)
+  //list_sort(&ready_list, &thread_comp, NULL);
   list_insert_ordered (&ready_list, &t->elem, &thread_comp,NULL);
   r++;
   t->status = THREAD_READY;
@@ -653,8 +653,8 @@ next_thread_to_run (void)
     return idle_thread;
   else
   {
-    if(thread_mlfqs)
-    list_sort(&ready_list, &thread_comp, NULL);
+    //if(thread_mlfqs)
+    //list_sort(&ready_list, &thread_comp, NULL);
     return list_entry (list_pop_front (&ready_list), struct thread, elem);
   }
 }
