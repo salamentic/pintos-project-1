@@ -102,6 +102,7 @@ struct thread
     struct list_elem block_elem;           /* List element for all threads list. */
     struct list lock_list;
     struct list donater_list;
+    struct thread_blocktime blocked;
     uint8_t ticks;
     struct semaphore sema_clock;
     fixed_point_t nice;

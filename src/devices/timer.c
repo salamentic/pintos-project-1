@@ -10,6 +10,7 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+#include "threads/malloc.h"
   
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -33,6 +34,7 @@ static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
 struct list sleeping_list;
+struct lock sleep_list_lock;
 
 void recent_cpu_calc(struct thread * t, void * aux UNUSED);
 /*
@@ -56,6 +58,7 @@ timer_init (void)
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
   list_init(&sleeping_list);
+  lock_init(&sleep_list_lock);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -84,6 +87,13 @@ timer_calibrate (void)
 
   printf ("%'"PRIu64" loops/s.\n", (uint64_t) loops_per_tick * TIMER_FREQ);
 }
+/*
+bool priority_comp(struct list_elem* a,struct list_elem* b, void* aux )
+{
+  int a_prio  = list_entry(a, struct thread_blocktime,blocked_elem)->sleeping_thread->priority; 
+  int b_prio = list_entry(b, struct thread_blocktime,blocked_elem)->sleeping_thread->priority; 
+  return (a_prio > b_prio);
+} */
 
 bool priority_comp(struct list_elem* a,struct list_elem* b, void* aux )
 {
@@ -92,7 +102,7 @@ bool priority_comp(struct list_elem* a,struct list_elem* b, void* aux )
   {
     int a_prio  = list_entry(a, struct thread_blocktime,blocked_elem)->sleeping_thread->priority; 
     int b_prio = list_entry(b, struct thread_blocktime,blocked_elem)->sleeping_thread->priority; 
-    return (a_prio < b_prio);
+    return (a_prio > b_prio);
   }
   return (list_entry(a, struct thread_blocktime,blocked_elem)->tickers < list_entry(b, struct thread_blocktime,blocked_elem)->tickers);
 } 
@@ -122,16 +132,17 @@ timer_sleep (int64_t ticks)
 {
   int64_t start = timer_ticks ();
 
-  struct thread_blocktime * t = malloc(sizeof(struct thread_blocktime));
-  t->sleeping_thread = thread_current();
-  t->tickers = timer_ticks()+ticks;
+  thread_current()->blocked.sleeping_thread = thread_current();
+  thread_current()->blocked.tickers = start + ticks;
   ASSERT (intr_get_level () == INTR_ON);
   struct thread * current = thread_current();
   if(current->ticks == 0)
   current->ticks += timer_ticks() +ticks;
   else
   current->ticks += ticks;
-  list_insert_ordered( &sleeping_list,&t->blocked_elem,&priority_comp,  NULL);
+  lock_acquire(&sleep_list_lock);
+  list_insert_ordered( &sleeping_list,&thread_current()->blocked.blocked_elem,&priority_comp,  NULL);
+  lock_release(&sleep_list_lock);
  // list_push_back(&sleeping_list,&t->blocked_elem);
   block_add();
   
@@ -216,10 +227,12 @@ timer_interrupt (struct intr_frame *args UNUSED)
     thread_current()->recent_cpu = fix_add(thread_current()->recent_cpu,fix_int(1));*/
   thread_tick ();
 
-  /*
+  
   struct thread *t = thread_current ();
   struct list_elem * index;
-  for(index = list_begin(&sleeping_list);
+  if(ticks % TIMER_FREQ == 0 && thread_mlfqs)
+  { list_sort(&sleeping_list, &thread_comp,NULL);}
+  /*for(index = list_begin(&sleeping_list);
       index != list_end(&sleeping_list);
       index = list_next(index))
   {
@@ -239,16 +252,17 @@ timer_interrupt (struct intr_frame *args UNUSED)
   {
   struct list_elem * index =list_front(&sleeping_list);
   struct thread_blocktime * iterator = list_entry(index, struct thread_blocktime, blocked_elem);
-  while(iterator != list_end(&sleeping_list) && iterator->tickers <= timer_ticks())
+  while(index != list_end(&sleeping_list) && iterator->tickers <= timer_ticks())
   {
-     list_remove(iterator);
+     list_remove(index);
      sema_up2(&iterator->sleeping_thread->sema_clock);
-     if(list_empty(&sleeping_list))
+     if(list_empty(&sleeping_list) || list_size(&sleeping_list) == 1)
      break;
-     index = list_next(index); 
+     index =list_next(index);
      iterator = list_entry(index, struct thread_blocktime, blocked_elem);
   }
   }
+
 }
 
 

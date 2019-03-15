@@ -151,7 +151,6 @@ thread_init (void)
   fifty_nine = fix_frac(59,60);
   one_by_60 = fix_frac(1,60);
   four = fix_int(4);
-  r=0;
 //  list_init (&sleeping_list);
 
   /* Set up a thread structure for the running thread. */
@@ -209,10 +208,6 @@ void
 thread_tick (void) 
 {
   struct thread * t = thread_current();
-  if(timer_ticks() % 4 == 0 && thread_mlfqs)
-  {
-    thread_foreach(&mlfqs_priority_calc,NULL);
-  }
   if(timer_ticks() % TIMER_FREQ == 0 && thread_mlfqs)
   {
     int ready_threads2 = get_ready_list_size();
@@ -222,6 +217,10 @@ thread_tick (void)
   }
   else 
   t->recent_cpu = fix_add(one, t->recent_cpu);
+  if(timer_ticks() % 4 == 0 && thread_mlfqs)
+  {
+    thread_foreach(&mlfqs_priority_calc,NULL);
+  }
   
   /* Update statistics. */
   if (t == idle_thread)
@@ -298,9 +297,8 @@ thread_create (const char *name, int priority,
   sf->ebp = 0;
 
   /* Add to run queue. */
-  t->nice = fix_int(0);
   thread_unblock (t);
-  if(priority > thread_current()->priority )
+  if(priority > thread_current()->priority  && !thread_mlfqs)
   {
     thread_yield();
   }
@@ -340,6 +338,8 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
+  if(thread_mlfqs)
+  list_sort(&ready_list, &thread_comp, NULL);
   list_insert_ordered (&ready_list, &t->elem, &thread_comp,NULL);
   r++;
   t->status = THREAD_READY;
@@ -432,6 +432,8 @@ thread_yield (void)
   old_level = intr_disable ();
   if (cur != idle_thread) 
   {
+    if(thread_mlfqs)
+    list_sort(&ready_list, &thread_comp, NULL);
     r++;
     list_insert_ordered(&ready_list, &cur->elem,&thread_comp,NULL);
   }
@@ -493,7 +495,8 @@ void
 thread_set_nice (int nice UNUSED) 
 {
   thread_current()->nice =fix_int(nice);
-  thread_current()->priority = fix_trunc(fix_sub(fix_sub(fix_int(63),(fix_unscale(thread_current()->recent_cpu,4))),fix_int(nice*2)));
+  int rcpu_scaled = fix_trunc(fix_div(thread_current()->recent_cpu,four));
+  thread_current()->priority = 63 - rcpu_scaled - (nice) * 2;
 
   thread_current()->noice = nice;
   if(!list_empty(&ready_list) && list_entry (list_front (&ready_list), struct thread, elem)->priority > thread_current()->priority)
@@ -612,6 +615,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->nice = fix_int(0);
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
+  if(!thread_mlfqs)
   t->priority = priority;
   t->recent_cpu = fix_int(0);
   t->old_priority = priority;
@@ -649,7 +653,8 @@ next_thread_to_run (void)
     return idle_thread;
   else
   {
-    r--;
+    if(thread_mlfqs)
+    list_sort(&ready_list, &thread_comp, NULL);
     return list_entry (list_pop_front (&ready_list), struct thread, elem);
   }
 }
