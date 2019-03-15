@@ -230,8 +230,6 @@ timer_interrupt (struct intr_frame *args UNUSED)
   
   struct thread *t = thread_current ();
   struct list_elem * index;
-  if(ticks % TIMER_FREQ == 0 && thread_mlfqs)
-  { list_sort(&sleeping_list, &thread_comp,NULL);}
   /*for(index = list_begin(&sleeping_list);
       index != list_end(&sleeping_list);
       index = list_next(index))
