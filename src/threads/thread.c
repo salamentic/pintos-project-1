@@ -107,24 +107,13 @@ fixed_point_t nice;
 
 bool thread_comp(const struct list_elem * a,const struct list_elem * b, void * aux UNUSED )
 {
-  int a_priority = list_entry(a, struct thread, elem)->priority;
-  int b_priority = list_entry(b, struct thread, elem)->priority;
-  return a_priority >  b_priority;
+  return list_entry(a, struct thread, elem)->priority > list_entry(b, struct thread, elem)->priority;
 }
-
-bool thread_comp_opp(const struct list_elem * a,const struct list_elem * b, void * aux UNUSED )
-{
-  int a_priority = list_entry(a, struct thread, elem)->priority;
-  int b_priority = list_entry(b, struct thread, elem)->priority;
-  return a_priority <  b_priority;
-}
-
 bool thread_comp2(const struct list_elem * a,const struct list_elem * b, void * aux UNUSED )
 {
-  int a_priority = list_entry(a, struct thread, elem)->priority;
-  int b_priority = list_entry(b, struct thread, elem)->priority;
-  return a_priority >= b_priority;
+  return list_entry(a, struct thread, elem)->priority < list_entry(b, struct thread, elem)->priority;
 }
+
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -436,7 +425,6 @@ thread_yield (void)
   if (cur != idle_thread) 
   {
     if(thread_mlfqs)
-    list_sort(&ready_list, &thread_comp, NULL);
     r++;
     list_insert_ordered(&ready_list, &cur->elem,&thread_comp,NULL);
   }
@@ -627,6 +615,9 @@ init_thread (struct thread *t, const char *name, int priority)
   list_init(&t->donater_list);
 
   old_level = intr_disable ();
+  if(thread_mlfqs)
+  list_insert_ordered (&all_list, &t->allelem, &thread_comp,NULL);
+  else
   list_insert_ordered (&all_list, &t->allelem, &thread_comp,NULL);
   intr_set_level (old_level);
 }
@@ -656,7 +647,6 @@ next_thread_to_run (void)
     return idle_thread;
   else
   {
-    //if(thread_mlfqs)
     //list_sort(&ready_list, &thread_comp, NULL);
     return list_entry (list_pop_front (&ready_list), struct thread, elem);
   }
