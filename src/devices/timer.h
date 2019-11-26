@@ -1,8 +1,22 @@
 #ifndef DEVICES_TIMER_H
 #define DEVICES_TIMER_H
+#include <stdlib.h>
+#include <stdbool.h>
+#include <debug.h>
+#include <inttypes.h>
+#include <round.h>
+#include <stdio.h>
+#include "devices/pit.h"
+#include "threads/interrupt.h"
+#include "threads/synch.h"
+#include "threads/thread.h"
+#include "threads/thread.h"
+
+
 
 #include <round.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 /* Number of timer interrupts per second. */
 #define TIMER_FREQ 100
@@ -25,5 +39,6 @@ void timer_udelay (int64_t microseconds);
 void timer_ndelay (int64_t nanoseconds);
 
 void timer_print_stats (void);
+bool priority_comp(const struct list_elem* a,const struct list_elem* b, void* aux);
 
 #endif /* devices/timer.h */

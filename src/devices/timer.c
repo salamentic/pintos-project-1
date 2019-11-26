@@ -1,5 +1,8 @@
 #include "devices/timer.h"
+#include <stdlib.h>
+#include <stdbool.h>
 #include <debug.h>
+#include <stdio.h>
 #include <inttypes.h>
 #include <round.h>
 #include <stdio.h>
@@ -7,6 +10,7 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+#include "threads/malloc.h"
   
 /* See [8254] for hardware details of the 8254 timer chip. */
 
@@ -29,7 +33,23 @@ static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
 static void real_time_sleep (int64_t num, int32_t denom);
 static void real_time_delay (int64_t num, int32_t denom);
+struct list sleeping_list;
+struct lock sleep_list_lock;
 
+void recent_cpu_calc(struct thread * t, void * aux UNUSED);
+/*
+void
+recent_cpu_calc(struct thread * t, void * aux)
+{
+  fixed_point_t la = t->load_avg;
+  fixed_point_t la_coeff = fix_div(fix_mul(la,fix_int(2)),fix_add(fix_mul(la,fix_int(2)), fix_int(1)));
+  t->recent_cpu = fix_add(fix_mul(la_coeff,t->recent_cpu) , fix_int(t->nice));
+}*/
+/*void
+mlfqs_priority_calc(struct thread * t, void * aux)
+{
+  t->priority = 63 - fix_trunc(fix_unscale(t->recent_cpu,4)) - t->nice * 2;
+}*/
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
 void
@@ -37,6 +57,8 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+  list_init(&sleeping_list);
+  lock_init(&sleep_list_lock);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -56,7 +78,7 @@ timer_calibrate (void)
       loops_per_tick <<= 1;
       ASSERT (loops_per_tick != 0);
     }
-
+  
   /* Refine the next 8 bits of loops_per_tick. */
   high_bit = loops_per_tick;
   for (test_bit = high_bit >> 1; test_bit != high_bit >> 10; test_bit >>= 1)
@@ -65,6 +87,18 @@ timer_calibrate (void)
 
   printf ("%'"PRIu64" loops/s.\n", (uint64_t) loops_per_tick * TIMER_FREQ);
 }
+
+bool priority_comp(const struct list_elem* a,const struct list_elem* b, void* aux UNUSED )
+{
+  
+  if(list_entry(a, struct thread_blocktime,blocked_elem)->tickers == list_entry(b, struct thread_blocktime,blocked_elem)->tickers)
+  {
+    int a_prio  = list_entry(a, struct thread_blocktime,blocked_elem)->sleeping_thread->priority; 
+    int b_prio = list_entry(b, struct thread_blocktime,blocked_elem)->sleeping_thread->priority; 
+    return (a_prio > b_prio);
+  }
+  return (list_entry(a, struct thread_blocktime,blocked_elem)->tickers < list_entry(b, struct thread_blocktime,blocked_elem)->tickers);
+} 
 
 /* Returns the number of timer ticks since the OS booted. */
 int64_t
@@ -91,9 +125,20 @@ timer_sleep (int64_t ticks)
 {
   int64_t start = timer_ticks ();
 
+  thread_current()->blocked.sleeping_thread = thread_current();
+  thread_current()->blocked.tickers = start + ticks;
   ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+  struct thread * current = thread_current();
+  if(current->ticks == 0)
+  current->ticks += timer_ticks() +ticks;
+  else
+  current->ticks += ticks;
+  lock_acquire(&sleep_list_lock);
+  list_insert_ordered( &sleeping_list,&thread_current()->blocked.blocked_elem,&priority_comp,  NULL);
+  lock_release(&sleep_list_lock);
+ // list_push_back(&sleeping_list,&t->blocked_elem);
+  block_add();
+  
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -172,7 +217,41 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
+
+  
+  /*for(index = list_begin(&sleeping_list);
+      index != list_end(&sleeping_list);
+      index = list_next(index))
+  {
+    struct thread_blocktime * iterator = list_entry(index, struct thread_blocktime, blocked_elem);
+    iterator->tickers--;
+    if(iterator->tickers <= 0 )
+    {
+       if(list_prev(index) != NULL && list_entry(list_prev(index), struct thread_blocktime, blocked_elem)->sleeping_thread->priority <= iterator->sleeping_thread->priority)
+       {
+       list_remove(index);
+       sema_up2(&iterator->sleeping_thread->sema_clock);
+       }
+    }
+  }*/
+
+  if(!list_empty(&sleeping_list))
+  {
+  struct list_elem * index =list_front(&sleeping_list);
+  struct thread_blocktime * iterator = list_entry(index, struct thread_blocktime, blocked_elem);
+  while(index != list_end(&sleeping_list) && iterator->tickers <= timer_ticks())
+  {
+     list_remove(index);
+     sema_up2(&iterator->sleeping_thread->sema_clock);
+     if(list_empty(&sleeping_list) || list_size(&sleeping_list) == 1)
+     break;
+     index =list_next(index);
+     iterator = list_entry(index, struct thread_blocktime, blocked_elem);
+  }
+  }
+
 }
+
 
 /* Returns true if LOOPS iterations waits for more than one timer
    tick, otherwise false. */

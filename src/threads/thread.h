@@ -4,6 +4,9 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
+#include "threads/fixedpoint.h"
+#include "fixedpoint.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -13,6 +16,12 @@ enum thread_status
     THREAD_BLOCKED,     /* Waiting for an event to trigger. */
     THREAD_DYING        /* About to be destroyed. */
   };
+struct thread_blocktime
+{
+  struct list_elem blocked_elem;
+  struct thread  * sleeping_thread;
+  int tickers;
+};
 
 /* Thread identifier type.
    You can redefine this to whatever type you like. */
@@ -88,7 +97,17 @@ struct thread
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
+    int old_priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
+    struct list_elem block_elem;           /* List element for all threads list. */
+    struct list lock_list;
+    struct list donater_list;
+    struct thread_blocktime blocked;
+    uint8_t ticks;
+    struct semaphore sema_clock;
+    fixed_point_t nice;
+    int noice;
+    fixed_point_t recent_cpu;
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
@@ -111,6 +130,7 @@ void thread_init (void);
 void thread_start (void);
 
 void thread_tick (void);
+void block_add(void);
 void thread_print_stats (void);
 
 typedef void thread_func (void *aux);
@@ -122,10 +142,15 @@ void thread_unblock (struct thread *);
 struct thread *thread_current (void);
 tid_t thread_tid (void);
 const char *thread_name (void);
+bool thread_comp(const struct list_elem * a,const struct list_elem * b, void * aux UNUSED );
+bool thread_comp_opp(const struct list_elem * a,const struct list_elem * b, void * aux UNUSED);
+bool thread_comp2(const struct list_elem * a,const struct list_elem * b, void * aux UNUSED);
 
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);
 
+void
+recent_cpu_calc(struct thread * t, void * aux);
 /* Performs some operation on thread t, given auxiliary data AUX. */
 typedef void thread_action_func (struct thread *t, void *aux);
 void thread_foreach (thread_action_func *, void *);
@@ -137,5 +162,11 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+int get_ready_list_size(void);
+int get_all_list_size(void);
+struct thread * get_idle_thread(void);
+void mlfqs_priority_calc(struct thread * t, void * aux);
+void recent_cpu_calc1(struct thread * t, void * aux UNUSED);
+void thread_unblock_priority (struct thread *t) ;
 
 #endif /* threads/thread.h */
